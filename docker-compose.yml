@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: youtube_summarizer_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: youtube_summarizer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: youtube_summarizer_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Database connection
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: youtube_summarizer
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      
+      # Add your API keys and other environment variables here
+      # GROQ_API_KEY: ${GROQ_API_KEY}
+      # Add other environment variables as needed
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - backend_cache:/root/.cache
+    networks:
+      - app-network
+    stdin_open: true
+    tty: true
+
+volumes:
+  postgres_data:
+    driver: local
+  backend_cache:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
