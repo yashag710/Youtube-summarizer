@@ -4,9 +4,7 @@ import axios from 'axios';
 
 // Modern color palette matching the site theme
 const ACCENT_PRIMARY = "#6366f1";
-const ACCENT_SECONDARY = "#8b5cf6";
 const TEXT_PRIMARY = "#0f172a";
-const TEXT_SECONDARY = "#475569";
 const BG_PRIMARY = "#ffffff";
 const BG_SECONDARY = "#f8fafc";
 const BORDER_COLOR = "#e2e8f0";

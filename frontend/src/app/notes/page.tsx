@@ -7,12 +7,8 @@ import jsPDF from 'jspdf';
 
 // Modern color palette matching the site theme
 const ACCENT_PRIMARY = "#6366f1";
-const ACCENT_SECONDARY = "#8b5cf6";
 const TEXT_PRIMARY = "#0f172a";
-const TEXT_SECONDARY = "#475569";
-const BG_PRIMARY = "#ffffff";
 const BG_SECONDARY = "#f8fafc";
-const BORDER_COLOR = "#e2e8f0";
 const FONT_FAMILY = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 // Icon helper component
@@ -84,7 +80,7 @@ export default function NotesPage() {
   const formatNotesAsMarkdown = () => {
     let markdown = `# Study Notes\n\n`;
     
-    sections.forEach((section, index) => {
+    sections.forEach((section) => {
       markdown += `## ${section.title}\n\n`;
       markdown += `${section.content}\n\n`;
     });
@@ -95,7 +91,7 @@ export default function NotesPage() {
   const formatNotesAsPlainText = () => {
     let text = `STUDY NOTES\n${'='.repeat(50)}\n\n`;
     
-    sections.forEach((section, index) => {
+    sections.forEach((section) => {
       text += `${section.title.toUpperCase()}\n${'-'.repeat(50)}\n`;
       text += `${section.content}\n\n`;
     });

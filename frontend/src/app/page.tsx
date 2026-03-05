@@ -50,11 +50,6 @@ const ICONS = {
   ),
 };
 
-interface BackendError {
-  detail?: string;
-  error?: string;
-  message?: string;
-}
 export default function Home() {
   const [videoLink, setVideoLink] = useState("");
   const [loading, setLoading] = useState(false);
@@ -246,7 +241,7 @@ export default function Home() {
               <div className="mt-16">
                 <h3 className="text-sm font-bold uppercase tracking-widest text-white/80 mb-10 flex items-center justify-center gap-2">
                   <Icon path={ICONS.sparkles} className="w-4 h-4" />
-                  What You'll Get
+                  What You&apos;ll Get
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <FeatureCard
