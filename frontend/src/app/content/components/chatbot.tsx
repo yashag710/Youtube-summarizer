@@ -76,7 +76,7 @@ export default function Chatbot({ accentPurple = "#764ba2" }: ChatbotProps) {
     setChatError('');
 
     try {
-      const response = await axios.get(`http://localhost:8000/query`, {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/query`, {
         params: { 
           query: currentQuestion,
           video_id: videoId

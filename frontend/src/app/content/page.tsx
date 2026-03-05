@@ -113,7 +113,7 @@ export default function VideoAssistantPage() {
 
       const apiClient = axios.create({
         timeout: 300000, // Increased to 5 minutes for longer videos
-        baseURL: "http://localhost:8000",
+        baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
         headers
       });
 
@@ -197,7 +197,7 @@ export default function VideoAssistantPage() {
       }
       
       // Generate step 2 token for QNA flow
-      const response = await axios.post(`http://localhost:8000/generate_token?video_id=${videoId}&step=2`);
+      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/generate_token?video_id=${videoId}&step=2`);
       const { token } = response.data;
       
       // Store token for QNA page

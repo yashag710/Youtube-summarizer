@@ -65,7 +65,7 @@ export default function NotesPage() {
         const videoId = localStorage.getItem("video_id");
 
         // Fetch notes from backend
-        const response = await axios.post(`http://localhost:8000/notes?video_id=${videoId}`);
+        const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/notes?video_id=${videoId}`);
         
         if (response.data) {
           setSections(response.data.sections || []);

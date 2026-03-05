@@ -74,7 +74,7 @@ export default function Home() {
 
       const Id = videoId ? videoId[1] : null;
       // Step 1: Generate token from backend
-      const baseURL = "http://127.0.0.1:8000";
+      const baseURL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
       const tokenResponse = await fetch(`${baseURL}/generate_token?video_id=${Id}`, {
         method: "POST",
         headers: { 'Content-Type': 'application/json' },
