@@ -5,9 +5,7 @@ import Chatbot from "./components/chatbot";
 
 // Modern, clean color palette
 const ACCENT_PRIMARY = "#6366f1";
-const ACCENT_SECONDARY = "#8b5cf6";
 const TEXT_PRIMARY = "#0f172a";
-const TEXT_SECONDARY = "#475569";
 const BG_PRIMARY = "#ffffff";
 const BG_SECONDARY = "#f8fafc";
 const BORDER_COLOR = "#e2e8f0";
@@ -32,46 +30,7 @@ interface BackendError {
     message?: string;
 }
 
-// Icon helper
-const Icon = ({ path, className = "w-5 h-5", style }: { path: React.ReactNode, className?: string, style?: React.CSSProperties }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-    style={style}
-  >
-    {path}
-  </svg>
-);
-
-// Icon paths
-const ICONS = {
-  loader: <path d="M21 12a9 9 0 1 1-6.219-8.56" />,
-};
-
-// --- Helper component for Icons ---
-// const Icon = ({ path, className = "w-6 h-6" }: { path: React.ReactNode, className?: string }) => (
-//   <svg
-//     xmlns="http://www.w3.org/2000/svg"
-//     viewBox="0 0 24 24"
-//     fill="none"
-//     stroke="currentColor"
-//     strokeWidth="2"
-//     strokeLinecap="round"
-//     strokeLinejoin="round"
-//     className={className}
-//   >
-//     {path}
-//   </svg>
-// );
-
 export default function VideoAssistantPage() {
-  const [summary, setSummary] = useState<string>("");
   const [topics, setTopics] = useState<Topic[]>([]);
   const [transcript, setTranscript] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -128,7 +87,6 @@ export default function VideoAssistantPage() {
         localStorage.setItem("video_id", data.video_id);
       }
       
-      setSummary(data.summary || "");
       setTopics(data.topics || []);
       setTranscript(data.transcript || "");
       
@@ -171,7 +129,7 @@ export default function VideoAssistantPage() {
     } finally {
       setLoading(false);
     }
-  }, [hasMounted]);
+  }, [hasMounted, retryCount]);
 
   useEffect(() => {
     if(hasMounted) {
@@ -210,15 +168,6 @@ export default function VideoAssistantPage() {
       alert("Failed to start QNA. Please try again.");
     }
   }
-  const ActionButton = ({ onClick, disabled, children }: { onClick: () => void, disabled: boolean, children: React.ReactNode }) => (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="flex-1 text-center px-4 py-3 bg-white text-black border border-black/20 hover:bg-black hover:text-white disabled:bg-neutral-100 disabled:text-black/30 disabled:cursor-not-allowed transition-all duration-300 font-semibold text-sm"
-    >
-      {children}
-    </button>
-  );
 
   return (
     <>
