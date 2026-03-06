@@ -98,7 +98,7 @@ export default function QnAPage() {
         }
 
         const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/generate_qna?video_id=${videoId}`,
+          `${process.env.NEXT_PUBLIC_API_URL}/generate_qna?video_id=${videoId}`,
           {},
           {
             headers: {
