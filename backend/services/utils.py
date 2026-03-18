@@ -37,58 +37,114 @@ def _extract_error_tail(process_result: subprocess.CompletedProcess) -> str:
 
 
 def _build_yt_dlp_strategies(output_template: str, video_url: str) -> list[list[str]]:
+    # Base command now includes the Tor Proxy
     base = [
         "yt-dlp",
         "--no-playlist",
+        "--proxy", "socks5://127.0.0.1:9050",  # <--- TOR PROXY ADDED HERE
         "--extractor-args",
-        "youtube:player_client=default",
+        "youtube:player_client=web",           # Use 'web' client as it's more stable over Tor
         "--extractor-args",
         "youtube:player_skip=configs",
-        "--retries",
-        "5",
-        "--fragment-retries",
-        "5",
-        "--concurrent-fragments",
-        "1",
-        "--force-ipv4",
-        "-f",
-        "bestaudio[ext=m4a]/bestaudio/best",
+        "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "--retries", "5",
+        "--fragment-retries", "5",
+        "--concurrent-fragments", "1",
+        # Removed --force-ipv4 to allow Tor to manage the connection
+        "-f", "bestaudio[ext=m4a]/bestaudio/best",
         "-x",
-        "--audio-format",
-        "mp3",
-        "-o",
-        output_template,
+        "--audio-format", "mp3",
+        "-o", output_template,
         video_url,
     ]
 
     strategies: list[list[str]] = []
 
+    # Strategy 1: Tor + Cookies File (If exists) - Best chance of success
     cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
     if cookies_file:
         strategies.append([
             *base[:-1],
-            "--cookies",
-            cookies_file,
+            "--cookies", cookies_file,
             base[-1],
         ])
 
+    # Strategy 2: Tor + Browser Cookies
     cookies_browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
     if cookies_browser:
         strategies.append([
             *base[:-1],
-            "--cookies-from-browser",
-            cookies_browser,
+            "--cookies-from-browser", cookies_browser,
             base[-1],
         ])
 
+    # Strategy 3: Just Tor (Default)
     strategies.append(base)
 
+    # Strategy 4: Tor + HLS Fallback (For live streams or stubborn videos)
     hls_fallback = [*base]
-    format_idx = hls_fallback.index("-f")
-    hls_fallback[format_idx + 1] = "91/92/93/94/140/139/bestaudio/best"
-    strategies.append(hls_fallback)
+    try:
+        format_idx = hls_fallback.index("-f")
+        hls_fallback[format_idx + 1] = "91/92/93/94/140/139/bestaudio/best"
+        strategies.append(hls_fallback)
+    except ValueError:
+        pass
 
     return strategies
+
+# def _build_yt_dlp_strategies(output_template: str, video_url: str) -> list[list[str]]:
+#     base = [
+#         "yt-dlp",
+#         "--no-playlist",
+#         "--extractor-args",
+#         "youtube:player_client=default",
+#         "--extractor-args",
+#         "youtube:player_skip=configs",
+#         "--retries",
+#         "5",
+#         "--fragment-retries",
+#         "5",
+#         "--concurrent-fragments",
+#         "1",
+#         "--force-ipv4",
+#         "-f",
+#         "bestaudio[ext=m4a]/bestaudio/best",
+#         "-x",
+#         "--audio-format",
+#         "mp3",
+#         "-o",
+#         output_template,
+#         video_url,
+#     ]
+
+#     strategies: list[list[str]] = []
+
+#     cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+#     if cookies_file:
+#         strategies.append([
+#             *base[:-1],
+#             "--cookies",
+#             cookies_file,
+#             base[-1],
+#         ])
+
+#     cookies_browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
+#     if cookies_browser:
+#         strategies.append([
+#             *base[:-1],
+#             "--cookies-from-browser",
+#             cookies_browser,
+#             base[-1],
+#         ])
+
+#     strategies.append(base)
+
+#     hls_fallback = [*base]
+#     format_idx = hls_fallback.index("-f")
+#     hls_fallback[format_idx + 1] = "91/92/93/94/140/139/bestaudio/best"
+#     strategies.append(hls_fallback)
+
+#     return strategies
 
 
 def _download_with_yt_dlp(video_url: str, output_path: str):
