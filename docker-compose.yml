@@ -25,7 +25,7 @@ services:
       - app-network
 
   # ----------------------------
-  # Backend Service (FastAPI)
+  # Backend Service (FastAPI + Tor)
   # ----------------------------
   backend:
     build:
@@ -42,6 +42,9 @@ services:
         condition: service_healthy
     volumes:
       - backend_cache:/root/.cache
+      # ADD THIS: Mount your cookies file from the host to the container
+      # This allows you to update cookies on your VM without rebuilding the image
+      - ./backend/youtube_cookies.txt:/app/youtube_cookies.txt
     networks:
       - app-network
 
