@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+#Install the javascript runtime environment
+RUN apt-get update && apt-get install -y nodejs npm
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 
@@ -37,3 +40,4 @@ CMD curl -f http://localhost:8000/docs || exit 1
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+

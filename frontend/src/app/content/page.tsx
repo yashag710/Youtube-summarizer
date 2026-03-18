@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import axios, { AxiosError } from "axios";
 import Chatbot from "./components/chatbot";
 
@@ -37,6 +37,8 @@ export default function VideoAssistantPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasMounted, setHasMounted] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const initialFetchTriggeredRef = useRef(false);
+  const requestInFlightRef = useRef(false);
   
   useEffect(() => {
     setHasMounted(true);
@@ -44,6 +46,7 @@ export default function VideoAssistantPage() {
   
   const fetchData = useCallback(async (isRetry = false) => {
     if (!hasMounted) return;
+    if (requestInFlightRef.current) return;
     
     const videoLink = localStorage.getItem("video_link");
     const token = localStorage.getItem("auth_token");
@@ -53,22 +56,26 @@ export default function VideoAssistantPage() {
       setLoading(false);
       return;
     }
+
+    if (!token) {
+      setError("Missing session token. Please go back and submit the video again.");
+      setLoading(false);
+      return;
+    }
     
     try {
       // Always set loading and clear error when starting fetch
       setLoading(true);
       setError(null);
+      requestInFlightRef.current = true;
       if (!isRetry) {
         setRetryCount(0);
       }
 
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       };
-      
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
 
       const apiClient = axios.create({
         timeout: 300000, // Increased to 5 minutes for longer videos
@@ -127,14 +134,15 @@ export default function VideoAssistantPage() {
       }
       
     } finally {
+      requestInFlightRef.current = false;
       setLoading(false);
     }
   }, [hasMounted, retryCount]);
 
   useEffect(() => {
-    if(hasMounted) {
-        fetchData();
-    }
+    if (!hasMounted || initialFetchTriggeredRef.current) return;
+    initialFetchTriggeredRef.current = true;
+    fetchData();
   }, [hasMounted, fetchData]);
 
   if (!hasMounted) {

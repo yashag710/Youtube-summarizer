@@ -4,9 +4,8 @@ from sumy.summarizers.text_rank import TextRankSummarizer
 from transformers import pipeline
 
 offline_summarizer = pipeline(
-    "summarization",
-    model="sshleifer/distilbart-cnn-12-6",
-    device=-1
+    "text2text-generation",
+    model="facebook/bart-large-cnn"
 )
 
 def extractive_summary(text, count):
@@ -30,9 +29,20 @@ def rewrite_offline(text, mode="main"):
             result = offline_summarizer(
                 chunk, max_length=max_len, min_length=min_len, do_sample=False
             )
-            final_summary.append(result[0]["summary_text"].strip())
+            output_item = result[0] if result else {}
+            generated_text = (
+                output_item.get("summary_text")
+                or output_item.get("generated_text")
+                or ""
+            )
+
+            if generated_text:
+                final_summary.append(generated_text.strip())
         
-        return " ".join(final_summary)
+        if final_summary:
+            return " ".join(final_summary)
+
+        return text[:500]
     except Exception as e:
         print(f"Error in rewriting: {e}")
         return text[:500]

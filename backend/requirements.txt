@@ -5,6 +5,7 @@ uvicorn[standard]
 # Environment variables
 python-dotenv
 
+
 # Data validation
 pydantic
 
@@ -13,20 +14,23 @@ psycopg2-binary
 
 # Audio & video
 yt-dlp
+
+# Audio processing
 ffmpeg-python
+requests
 
 # Speech-to-text (offline)
 openai-whisper
 faster-whisper
 
 # NLP / Summarization
-transformers
 torch
+transformers
 sentencepiece
 sumy
 nltk
 sentence-transformers
-numpy
+numpy<2
 
 # LLM / AI
 groq

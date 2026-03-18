@@ -1,12 +1,19 @@
 import jwt, time
 import os
+import hashlib
 
 from fastapi import HTTPException, Header
 from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET = os.getenv("SECRET")
+SECRET = os.getenv("SECRET", "")
+
+if not SECRET:
+    raise RuntimeError("SECRET environment variable is required")
+
+if len(SECRET.encode("utf-8")) < 32:
+    SECRET = hashlib.sha256(SECRET.encode("utf-8")).hexdigest()
 
 def create_flow_token(video_id: str, step: int = 1):
     payload = {
