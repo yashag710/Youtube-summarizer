@@ -37,20 +37,29 @@ def _extract_error_tail(process_result: subprocess.CompletedProcess) -> str:
 
 
 def _build_yt_dlp_strategies(output_template: str, video_url: str) -> list[list[str]]:
-    # Base command now includes the Tor Proxy
+    # Get the Brave cookie setting from your .env if possible, 
+    # or hardcode 'brave' for your local testing
+    cookies_browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "brave")
+
     base = [
         "yt-dlp",
         "--no-playlist",
-        "--proxy", "socks5://127.0.0.1:9050",  # <--- TOR PROXY ADDED HERE
-        "--extractor-args",
-        "youtube:player_client=web",           # Use 'web' client as it's more stable over Tor
-        "--extractor-args",
-        "youtube:player_skip=configs",
+        # 1. FIX: Use Node.js runtime correctly
+        "--js-runtime", "node",
+        
+        # 2. FIX: Solve the n-challenge by fetching latest solvers from GitHub
+        "--remote-components", "ejs:github",
+        
+        # 3. FIX: Use cookies from your browser to prove you are a human
+        f"--cookies-from-browser={cookies_browser}",
+        
+        # 4. FIX: Correct formatting for extractor args
+        "--extractor-args", "youtube:player_client=web;player_skip=configs",
+        
         "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "--retries", "5",
         "--fragment-retries", "5",
         "--concurrent-fragments", "1",
-        # Removed --force-ipv4 to allow Tor to manage the connection
         "-f", "bestaudio[ext=m4a]/bestaudio/best",
         "-x",
         "--audio-format", "mp3",
@@ -60,28 +69,15 @@ def _build_yt_dlp_strategies(output_template: str, video_url: str) -> list[list[
 
     strategies: list[list[str]] = []
 
-    # Strategy 1: Tor + Cookies File (If exists) - Best chance of success
-    cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
-    if cookies_file:
-        strategies.append([
-            *base[:-1],
-            "--cookies", cookies_file,
-            base[-1],
-        ])
-
-    # Strategy 2: Tor + Browser Cookies
-    cookies_browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
-    if cookies_browser:
-        strategies.append([
-            *base[:-1],
-            "--cookies-from-browser", cookies_browser,
-            base[-1],
-        ])
-
-    # Strategy 3: Just Tor (Default)
+    # Strategy 1: Local IP + Brave Cookies (Most likely to work on your IdeaPad)
     strategies.append(base)
 
-    # Strategy 4: Tor + HLS Fallback (For live streams or stubborn videos)
+    # Strategy 2: Tor Proxy (Added back as a backup)
+    # NOTE: We use socks5h to prevent DNS leaks
+    tor_strategy = [*base, "--proxy", "socks5h://127.0.0.1:9050"]
+    strategies.append(tor_strategy)
+
+    # Strategy 3: HLS Fallback
     hls_fallback = [*base]
     try:
         format_idx = hls_fallback.index("-f")
@@ -92,127 +88,37 @@ def _build_yt_dlp_strategies(output_template: str, video_url: str) -> list[list[
 
     return strategies
 
-# def _build_yt_dlp_strategies(output_template: str, video_url: str) -> list[list[str]]:
-#     base = [
-#         "yt-dlp",
-#         "--no-playlist",
-#         "--extractor-args",
-#         "youtube:player_client=default",
-#         "--extractor-args",
-#         "youtube:player_skip=configs",
-#         "--retries",
-#         "5",
-#         "--fragment-retries",
-#         "5",
-#         "--concurrent-fragments",
-#         "1",
-#         "--force-ipv4",
-#         "-f",
-#         "bestaudio[ext=m4a]/bestaudio/best",
-#         "-x",
-#         "--audio-format",
-#         "mp3",
-#         "-o",
-#         output_template,
-#         video_url,
-#     ]
-
-#     strategies: list[list[str]] = []
-
-#     cookies_file = os.getenv("YTDLP_COOKIES_FILE", "").strip()
-#     if cookies_file:
-#         strategies.append([
-#             *base[:-1],
-#             "--cookies",
-#             cookies_file,
-#             base[-1],
-#         ])
-
-#     cookies_browser = os.getenv("YTDLP_COOKIES_FROM_BROWSER", "").strip()
-#     if cookies_browser:
-#         strategies.append([
-#             *base[:-1],
-#             "--cookies-from-browser",
-#             cookies_browser,
-#             base[-1],
-#         ])
-
-#     strategies.append(base)
-
-#     hls_fallback = [*base]
-#     format_idx = hls_fallback.index("-f")
-#     hls_fallback[format_idx + 1] = "91/92/93/94/140/139/bestaudio/best"
-#     strategies.append(hls_fallback)
-
-#     return strategies
-
-
 def _download_with_yt_dlp(video_url: str, output_path: str):
+    
     output_path = os.path.abspath(output_path)
     output_dir = os.path.dirname(output_path)
-    output_name, _ = os.path.splitext(os.path.basename(output_path))
+    # This ensures we have a clean filename without extension for the template
+    output_name = os.path.splitext(os.path.basename(output_path))[0]
     os.makedirs(output_dir, exist_ok=True)
 
+    # Use a simpler template to avoid confusion
     output_template = os.path.join(output_dir, f"{output_name}.%(ext)s")
-    timeout_seconds = int(os.getenv("YTDLP_TIMEOUT_SECONDS", "900"))
+    
     strategies = _build_yt_dlp_strategies(output_template, video_url)
     strategy_errors: list[str] = []
 
     for idx, command in enumerate(strategies, start=1):
-        try:
-            result = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-            )
-        except FileNotFoundError as error:
-            raise RuntimeError("yt-dlp is not installed in this environment") from error
-        except subprocess.TimeoutExpired:
-            strategy_errors.append(
-                f"strategy-{idx}: timed out after {timeout_seconds}s"
-            )
-            continue
-
-        if result.returncode != 0:
-            error_tail = _extract_error_tail(result)
-            strategy_errors.append(f"strategy-{idx}: {error_tail}")
-            continue
-
+        result = subprocess.run(command, capture_output=True, text=True)
+        
+        # Check if the expected MP3 exists now
         expected_mp3 = os.path.join(output_dir, f"{output_name}.mp3")
+        
+        if os.path.exists(expected_mp3):
+            # If it exists but isn't named exactly what output_path wants, rename it
+            if expected_mp3 != output_path:
+                os.replace(expected_mp3, output_path)
+            return  # SUCCESS! Exit the function
 
-        if expected_mp3 != output_path and os.path.exists(expected_mp3):
-            os.replace(expected_mp3, output_path)
+        # If it failed, log the error
+        if result.returncode != 0:
+            strategy_errors.append(f"strategy-{idx}: {result.stderr[-500:]}")
 
-        if not os.path.exists(output_path):
-            candidates = glob.glob(os.path.join(output_dir, f"{output_name}.*"))
-            if candidates:
-                os.replace(candidates[0], output_path)
-
-        if os.path.exists(output_path):
-            return
-
-        strategy_errors.append(
-            f"strategy-{idx}: yt-dlp reported success but output file was not found"
-        )
-
-    joined_errors = "\n---\n".join(strategy_errors[-4:])
-    guidance = []
-    lowered = joined_errors.lower()
-    if "sign in to confirm you" in lowered or "cookies-from-browser" in lowered:
-        guidance.append(
-            "Set YTDLP_COOKIES_FROM_BROWSER=chrome (or firefox) or YTDLP_COOKIES_FILE=/absolute/path/cookies.txt"
-        )
-    if "javascript runtime" in lowered:
-        guidance.append("Install Node.js so yt-dlp can use a JavaScript runtime")
-    if "http error 403" in lowered:
-        guidance.append("Update yt-dlp in your venv: pip install -U yt-dlp")
-
-    guidance_text = f"\nHints: {' | '.join(guidance)}" if guidance else ""
-    raise RuntimeError(
-        f"yt-dlp failed across strategies:\n{joined_errors}{guidance_text}"
-    )
+    raise RuntimeError(f"yt-dlp finished but {output_path} was not found.")
 
 
 def download_audio(video_url: str, output_path: str):

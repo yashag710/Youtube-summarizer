@@ -4,7 +4,7 @@ from sumy.summarizers.text_rank import TextRankSummarizer
 from transformers import pipeline
 
 offline_summarizer = pipeline(
-    "text2text-generation",
+    "summarization",
     model="facebook/bart-large-cnn"
 )
 
