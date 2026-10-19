@@ -64,10 +64,12 @@ export default function Home() {
     try {
 
       //Fetch the video ID from the Youtube link
-      const videoId = videoLink.match(/(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([^&]+)/) ||
-        videoLink.match(/(?:https?:\/\/)?(?:www\.)?youtu\.be\/([^?]+)/);
-
-      const Id = videoId ? videoId[1] : null;
+      // Same pattern as the backend's extract_video_id (services/utils.py); /analyze rejects a mismatch
+      const videoId = videoLink.match(/(?:v=|youtu\.be\/|youtube\.com\/(?:shorts|embed|live)\/)([A-Za-z0-9_-]{11})/);
+      if (!videoId) {
+        throw new Error("Please enter a valid YouTube link.");
+      }
+      const Id = videoId[1];
       // Step 1: Generate token from backend
       const baseURL = process.env.NEXT_PUBLIC_API_URL;
       const tokenResponse = await fetch(`${baseURL}/generate_token?video_id=${Id}`, {
@@ -85,6 +87,9 @@ export default function Home() {
       // Step 2: Store video link and token in localStorage
       localStorage.setItem("video_link", videoLink);
       localStorage.setItem("auth_token", token);
+      // Forget the previous video until /analyze confirms the new one
+      localStorage.removeItem("video_id");
+      localStorage.removeItem("qna_token");
       // Step 3: Redirect to content page
       window.location.href = `/content`;
 

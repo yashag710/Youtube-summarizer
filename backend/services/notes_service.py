@@ -32,6 +32,7 @@ Guidelines:
 - Maintain a logical flow of ideas
 - Do NOT add new information
 - Write in a neutral, academic tone
+- Start every section with a Markdown "## " heading (not bold text)
 
 Structure:
 1. Overview/Introduction
@@ -48,7 +49,7 @@ Topics Covered:
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-20b",  # Groq retired the Llama 3.x models
             messages=[
                 {"role": "system", "content": "You generate structured academic notes in clear sections."},
                 {"role": "user", "content": prompt}
@@ -78,7 +79,11 @@ def parse_notes_into_sections(notes_text: str):
     current_section = {"title": "", "content": []}
     
     for line in lines:
-        # Check if line is a heading (starts with #)
+        # A heading is a "#" line, or a line that is entirely bold ("**Key Topics**"),
+        # which some models use instead
+        bold_heading = re.fullmatch(r"\s*\*\*([^*]+)\*\*:?\s*", line)
+        if bold_heading:
+            line = "# " + bold_heading.group(1).strip().rstrip(":")
         if line.startswith('#'):
             # Save previous section if it has content
             if current_section["title"] or current_section["content"]:

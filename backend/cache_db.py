@@ -43,7 +43,11 @@ def init_db():
             expires_at TIMESTAMP NOT NULL
         );
         """)
-        
+
+        # Chunk embeddings for the chatbot (float32 bytes). Added after the table first
+        # shipped; IF NOT EXISTS upgrades existing databases in place, old rows stay NULL.
+        cur.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS embeddings BYTEA;")
+
         # Create index on video_id for faster lookups
         cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_video_id ON videos(video_id);
@@ -89,6 +93,7 @@ def get_cached_video(video_id):
         refresh_expiry(video_id)
         
         result = {
+            "video_id": video_id,
             "transcript": row[0],
             "summary": row[1]
         }
@@ -108,31 +113,33 @@ def get_cached_video(video_id):
         return None
 
 
-def save_video(video_id, transcript, summary, topics=None):
+def save_video(video_id, transcript, summary, topics=None, embeddings=None):
     try:
         now = datetime.utcnow()
         expires = now + timedelta(hours=TTL_HOURS)
-        
+
         topics_json = json.dumps(topics) if topics else None
-        
+
         conn = get_connection()
         cur = conn.cursor()
-        
+
         # PostgreSQL upsert using ON CONFLICT
         cur.execute("""
         INSERT INTO videos
-        (video_id, transcript, summary, topics, created_at, expires_at)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        (video_id, transcript, summary, topics, embeddings, created_at, expires_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (video_id) DO UPDATE SET
             transcript = EXCLUDED.transcript,
             summary = EXCLUDED.summary,
             topics = EXCLUDED.topics,
+            embeddings = EXCLUDED.embeddings,
             expires_at = EXCLUDED.expires_at
         """, (
             video_id,
             transcript,
             summary,
             topics_json,
+            embeddings,
             now,
             expires
         ))
@@ -143,6 +150,36 @@ def save_video(video_id, transcript, summary, topics=None):
     except Exception as e:
         print(f"Error saving video to cache: {e}")
         raise
+
+
+def get_embeddings(video_id):
+    # Kept out of get_cached_video() so raw bytes never reach JSON API responses
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT embeddings FROM videos WHERE video_id = %s", (video_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        return bytes(row[0]) if row and row[0] is not None else None
+    except Exception as e:
+        print(f"Error retrieving embeddings: {e}")
+        return None
+
+
+def save_embeddings(video_id, embeddings):
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE videos SET embeddings = %s WHERE video_id = %s",
+            (embeddings, video_id)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error saving embeddings: {e}")
 
 
 def refresh_expiry(video_id):

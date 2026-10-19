@@ -25,7 +25,7 @@ faster-whisper
 
 # NLP / Summarization
 torch
-transformers
+transformers<5  # v5 removed the "summarization" pipeline used by services/summarizer.py
 sentencepiece
 sumy
 nltk

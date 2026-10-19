@@ -1,8 +1,9 @@
-import json, re, os
+import json, os
 
-from groq import Groq
+from groq import Groq, APIError
 from cache_db import get_cached_video
 from services.flow_token import verify_flow_token
+from services.utils import normalize_mcq
 from dotenv import load_dotenv
 from fastapi import HTTPException
 
@@ -35,6 +36,9 @@ QUESTION TYPES (mix across all difficulties):
 3. Integer/Numeric (numerical answer)
 4. Code (if applicable to content)
 
+For multiple_choice: "options" are 4 plain-text strings with NO "A)"/"B)" labels,
+and "correct_index" is the 0-based position of the correct option (0-3).
+
 Return ONLY valid JSON in this exact format:
 {{
   "questions": [
@@ -43,8 +47,8 @@ Return ONLY valid JSON in this exact format:
       "type": "multiple_choice",
       "difficulty": "easy",
       "question": "Question text here?",
-      "options": ["A) option1", "B) option2", "C) option3", "D) option4"],
-      "correct_answer": "B) option2",
+      "options": ["option1", "option2", "option3", "option4"],
+      "correct_index": 1,
       "explanation": "Brief explanation"
     }},
     {{
@@ -78,24 +82,32 @@ Summary:
 {data['summary']}
 """
 
-    res = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": "You are an expert educator who creates high-quality assessment questions. Generate exactly 20 questions with varied types and difficulties. Return ONLY valid JSON, no markdown formatting."},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.4,
-        max_tokens=4000
-    )
+    try:
+        res = client.chat.completions.create(
+            model="openai/gpt-oss-120b",  # Groq retired the Llama 3.x models
+            messages=[
+                {"role": "system", "content": "You are an expert educator who creates high-quality assessment questions. Generate exactly 20 questions with varied types and difficulties. Return ONLY valid JSON, no markdown formatting."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4,
+            max_tokens=4000,
+            response_format={"type": "json_object"}
+        )
+        qna = json.loads(res.choices[0].message.content)
+    except (APIError, json.JSONDecodeError) as e:
+        # JSON mode makes Groq itself reject non-JSON output, so failures surface here
+        raise HTTPException(status_code=502, detail=f"Quiz generation failed: {e}")
 
-    text = res.choices[0].message.content
-    match = re.search(r"\{[\s\S]*\}", text)
-
-    if not match:
-        return {"error": "Invalid JSON from model"}
-
-    qna = json.loads(match.group())
+    questions = []
+    for q in qna.get("questions", []):
+        if not isinstance(q, dict):
+            continue
+        if q.get("type") == "multiple_choice":
+            q = normalize_mcq(q)
+            if q is None:
+                continue  # unrepairable: drop it rather than show a wrong answer key
+        questions.append(q)
 
     return {
-        "qna": qna,
+        "qna": {"questions": questions},
     }

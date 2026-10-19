@@ -1,7 +1,16 @@
+import nltk
+from nltk.tokenize import sent_tokenize
 from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 from transformers import pipeline
+
+# nltk >= 3.8.2 (used by sent_tokenize and sumy's Tokenizer) needs punkt_tab, not just punkt
+for _resource in ("punkt", "punkt_tab"):
+    try:
+        nltk.data.find(f"tokenizers/{_resource}")
+    except LookupError:
+        nltk.download(_resource, quiet=True)
 
 offline_summarizer = pipeline(
     "summarization",
@@ -75,13 +84,6 @@ def generate_topics_offline(transcript):
 
 def split_into_points(text):
     """Split text into logical points/paragraphs instead of individual sentences"""
-    import nltk
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt')
-        
-    from nltk.tokenize import sent_tokenize
     sentences = sent_tokenize(text)
     
     # Group sentences into logical paragraphs (2-3 sentences per point)

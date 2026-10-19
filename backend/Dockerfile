@@ -10,15 +10,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies (Adding 'tor' and 'curl' for the healthcheck)
+# Install system dependencies ('curl' for the healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
-    tor \
     curl \
-    nodejs \
-    npm \
     && rm -rf /var/lib/apt/lists/*
+
+# yt-dlp needs Node 22+ to solve YouTube's JS challenge; Debian's nodejs package is older
+COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
 # Copy requirements first for better caching
 COPY requirements.txt .
@@ -27,7 +27,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Download NLTK data
-RUN python -c "import nltk; nltk.download('punkt'); nltk.download('stopwords')"
+RUN python -c "import nltk; nltk.download('punkt'); nltk.download('punkt_tab'); nltk.download('stopwords')"
 
 # Copy application code
 COPY . .
@@ -35,15 +35,8 @@ COPY . .
 # Expose port
 EXPOSE 8000
 
-# --- NEW STARTUP LOGIC ---
-# We create a simple shell script to start Tor as a background service 
-# before launching the Uvicorn server.
-RUN echo "#!/bin/bash\nservice tor start\nexec uvicorn main:app --host 0.0.0.0 --port 8000" > /app/entrypoint.sh
-RUN chmod +x /app/entrypoint.sh
-
 # Health check (Ensure curl is installed in the RUN block above)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=5 \
 CMD curl -f http://localhost:8000/docs || exit 1
 
-# Launch using the entrypoint script
-CMD ["/app/entrypoint.sh"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

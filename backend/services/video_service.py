@@ -5,6 +5,7 @@ from services.summarizer import extractive_summary, rewrite_offline, generate_to
 from services.utils import extract_video_id, download_audio
 from cache_db import get_cached_video, save_video
 from services.transcription import transcribe
+from chatbot.rag import chunk_transcript, embed_chunks
 import threading
 import time
 
@@ -64,16 +65,27 @@ def process_video_with_topics(video_url):
         topics = generate_comprehensive_topics(transcript)
         summary = generate_summary_detailed(transcript)
 
+        # Same shape as get_cached_video(), so fresh and cached responses match
         result = {
             "video_id": video_id,
+            "transcript": transcript,
             "summary": summary,
             "topics": topics
         }
         
         print(f"Generated {len(topics)} topics for video {video_id}")
+
+        # Embed chat chunks once here so /query never re-embeds the transcript
+        try:
+            chunks = chunk_transcript(transcript)
+            embeddings = embed_chunks(chunks).tobytes() if chunks else None
+        except Exception as e:
+            print(f"Embedding failed for {video_id}, chat will embed on first question: {e}")
+            embeddings = None
+
         # Save to cache (updated to include topics)
         try:
-            save_video(video_id, transcript, summary, topics)
+            save_video(video_id, transcript, summary, topics, embeddings)
         except:
             pass  # Cache save is optional
         

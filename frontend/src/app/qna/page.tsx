@@ -49,8 +49,8 @@ interface BaseQuestion {
 
 interface MultipleChoiceQuestion extends BaseQuestion {
   type: "multiple_choice";
-  options: string[]; // ["A) option1", "B) option2", ...]
-  correct_answer: string;
+  options: string[]; // plain text; the UI adds the A–D labels
+  correct_index: number;
 }
 
 interface WrittenQuestion extends BaseQuestion {
@@ -151,19 +151,7 @@ export default function QnAPage() {
 
   const getScore = () => {
     const scorableQuestions = questions.filter(q => q.type === "multiple_choice" || q.type === "integer");
-    const correctAnswers = scorableQuestions.filter((q) => {
-        const originalIndex = questions.indexOf(q);
-        const userAnswer = userAnswers[originalIndex];
-        if (!userAnswer) return false;
-        
-        if (q.type === "multiple_choice") {
-          return userAnswer === q.correct_answer;
-        }
-        if (q.type === "integer") {
-          return userAnswer.trim() === String(q.correct_answer);
-        }
-        return false;
-    });
+    const correctAnswers = scorableQuestions.filter((q) => isCorrect(q, questions.indexOf(q)));
     return { score: correctAnswers.length, total: scorableQuestions.length };
   };
 
@@ -172,7 +160,8 @@ export default function QnAPage() {
     if (!userAnswer) return false;
     
     if (q.type === "multiple_choice") {
-      return userAnswer === q.correct_answer;
+      // userAnswer is the selected option's index as a string ("1")
+      return userAnswer === String(q.correct_index);
     }
     if (q.type === "integer") {
       return userAnswer.trim() === String(q.correct_answer);
@@ -390,9 +379,9 @@ export default function QnAPage() {
                   {q.type === 'multiple_choice' && (
                     <div className="space-y-3">
                       {q.options.map((option, optIdx) => {
-                        const optionLetter = option.charAt(0); // "A)", "B)", etc.
-                        const isSelected = userAnswers[index] === optionLetter;
-                        const isCorrectOption = optionLetter === q.correct_answer.charAt(0);
+                        const optionLetter = "ABCD"[optIdx];
+                        const isSelected = userAnswers[index] === String(optIdx);
+                        const isCorrectOption = optIdx === q.correct_index;
                         
                         let classes = "option-btn flex items-start gap-3 p-4 border-2 rounded-lg text-left w-full ";
                         if (submitted) {
@@ -412,12 +401,12 @@ export default function QnAPage() {
                         return (
                           <button
                             key={optIdx}
-                            onClick={() => handleAnswerChange(index, optionLetter)}
+                            onClick={() => handleAnswerChange(index, String(optIdx))}
                             disabled={submitted}
                             className={classes}
                           >
                             <span className="flex-shrink-0 font-bold text-lg">{optionLetter}</span>
-                            <span className="flex-1 leading-relaxed">{option.substring(3)}</span>
+                            <span className="flex-1 leading-relaxed">{option}</span>
                             {submitted && isCorrectOption && (
                               <Icon path={ICONS.checkCircle} className="flex-shrink-0 w-5 h-5 text-green-600" />
                             )}

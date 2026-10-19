@@ -34,7 +34,7 @@ It uses a FastAPI backend for video processing + AI generation, a Next.js fronte
 - `yt-dlp` + `ffmpeg`
 - `faster-whisper` / `openai-whisper`
 - Hugging Face Transformers (`facebook/bart-large-cnn`)
-- Groq API (Llama models)
+- Groq API (`openai/gpt-oss-120b` for quiz and chat, `openai/gpt-oss-20b` for notes)
 - FAISS + sentence-transformers for retrieval
 
 ### Frontend
@@ -73,13 +73,13 @@ It uses a FastAPI backend for video processing + AI generation, a Next.js fronte
 ## How It Works (Flow)
 
 1. User submits a YouTube URL on the landing page.
-2. Frontend requests `POST /generate_token?video_id=<id>&step=1`.
-3. Frontend calls `POST /analyze` with Bearer token.
-4. Backend downloads audio, transcribes, summarizes, and caches result.
-5. User can:
+2. Frontend requests `POST /generate_token?video_id=<id>` (always a step-1 token).
+3. Frontend calls `POST /analyze` with Bearer token. The token's video must match the link.
+4. Backend downloads audio, transcribes, summarizes, and caches result. Videos longer than 30 minutes are rejected.
+5. `/analyze` returns a step-2 `qna_token` alongside the results. User can:
 	 - open chatbot (`GET /query`),
 	 - generate notes (`POST /notes`),
-	 - or generate quiz by obtaining step-2 token and calling `POST /generate_qna`.
+	 - or generate quiz by calling `POST /generate_qna` with the `qna_token`.
 
 ---
 
@@ -91,7 +91,7 @@ For Docker setup:
 
 For local (without Docker):
 - Python 3.11+
-- Node.js 20+
+- Node.js 22+ (the frontend needs 20+; yt-dlp needs 22+ to solve YouTube's JS challenge)
 - npm
 - PostgreSQL 15+
 - ffmpeg
@@ -119,8 +119,10 @@ DB_NAME=youtube_summarizer
 DB_USER=postgres
 DB_PASSWORD=postgres
 
-# yt-dlp (optional but recommended)
-YTDLP_COOKIES_FILE=/app/youtube_cookies.txt
+# yt-dlp (optional)
+# Rotating residential proxy, tried before the direct connection. {session} is replaced
+# with a fresh id per download so the provider keeps one IP for the whole download.
+YTDLP_PROXY=http://username-session-{session}:password@gateway.example.com:7000
 YTDLP_TIMEOUT_SECONDS=1200
 ```
 
@@ -148,10 +150,8 @@ Services:
 - Postgres: `localhost:5432`
 
 Backend container details:
-- Starts Tor + Uvicorn.
-- Mounts cookies file from host:
-	- host: `backend/youtube_cookies.txt`
-	- container: `/app/youtube_cookies.txt`
+- Runs Uvicorn, with Node 22 for yt-dlp.
+- Set `YTDLP_PROXY` in `backend/.env` when deployed; server IPs usually hit YouTube's bot check.
 
 ---
 
@@ -198,14 +198,13 @@ npm run dev
 Base URL: `http://localhost:8000`
 
 ### `POST /generate_token`
-Generate flow token.
+Generate a step-1 flow token. Step-2 tokens are only issued by `/analyze`.
 
 Query params:
 - `video_id` (required)
-- `step` (optional, default: `1`)
 
 ### `POST /analyze`
-Analyze a video and cache results.
+Analyze a video and cache results. Rejects links whose video ID differs from the token's, and videos longer than 30 minutes (`400`).
 
 Headers:
 - `Authorization: Bearer <step-1-token>`
@@ -219,8 +218,10 @@ Body:
 
 Returns:
 - `video_id`
+- `transcript`
 - `summary`
 - `topics`
+- `qna_token` (step-2 token for `/generate_qna`)
 
 ### `POST /generate_qna`
 Generate 20 quiz questions for a processed video.
@@ -229,7 +230,7 @@ Query params:
 - `video_id` (required)
 
 Headers:
-- `Authorization: Bearer <step-2-token>`
+- `Authorization: Bearer <qna_token from /analyze>`
 
 ### `POST /notes`
 Generate structured study notes.
@@ -244,6 +245,17 @@ Query params:
 - `query` (required)
 - `video_id` (required)
 
+### Rate limits
+
+Per client IP, in memory (reset on restart; one uvicorn worker assumed). Exceeding a limit returns `429` with a `Retry-After` header.
+
+| Endpoint | Limit |
+|---|---|
+| `POST /analyze` | 20 per hour |
+| `POST /generate_qna` | 10 per hour |
+| `POST /notes` | 20 per hour |
+| `GET /query` | 30 per 10 minutes |
+
 ---
 
 ## Database / Cache
@@ -253,6 +265,7 @@ Table: `videos`
 - `transcript`
 - `summary`
 - `topics` (JSON stored as text)
+- `embeddings` (chatbot chunk vectors, float32 bytes; computed during `/analyze`, added automatically to existing databases on startup)
 - `created_at`
 - `expires_at`
 
@@ -262,12 +275,12 @@ Cache TTL is currently set to **24 hours** in `backend/cache_db.py`.
 
 ## Notes for YouTube Download Reliability
 
-`yt-dlp` strategies include Tor + optional cookies.
+Downloads try, in order: the rotating proxy (if `YTDLP_PROXY` is set), a direct connection, then a direct connection with HLS formats. No cookies are used, so age-restricted and members-only videos can't be downloaded.
 
-If download fails for restricted videos:
-- provide a valid cookies file,
+When every attempt fails, the error lists each attempt's reason (for example `proxy: ERROR: ... Sign in to confirm you're not a bot`). If downloads fail:
+- deployed: set `YTDLP_PROXY` to a residential provider with sticky sessions (datacenter IPs are often blocked),
 - update `yt-dlp`,
-- verify Node.js is installed in backend runtime,
+- verify Node.js 22+ is installed in the backend runtime,
 - increase `YTDLP_TIMEOUT_SECONDS`.
 
 ---

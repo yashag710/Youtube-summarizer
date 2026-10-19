@@ -18,7 +18,7 @@ Question: {query}
 Answer:
 """
     resp = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",  # Groq retired the Llama 3.x models
         messages=[{"role": "user", "content": prompt}]
     )
     return resp.choices[0].message.content.strip()

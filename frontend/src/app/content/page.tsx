@@ -22,6 +22,7 @@ interface AnalyzeResponse {
   summary: string;
   topics: Topic[];
   transcript: string;
+  qna_token: string;
 }
 
 interface BackendError {
@@ -89,9 +90,17 @@ export default function VideoAssistantPage() {
 
       const data = response.data;
       
-      // Store video_id for other features
+      // Always overwrite so a previous video's ID can't leak into Q&A, notes or chat
       if (data.video_id) {
         localStorage.setItem("video_id", data.video_id);
+      } else {
+        localStorage.removeItem("video_id");
+      }
+      // Step-2 token for the quiz; the backend only issues it after a successful analysis
+      if (data.qna_token) {
+        localStorage.setItem("qna_token", data.qna_token);
+      } else {
+        localStorage.removeItem("qna_token");
       }
       
       setTopics(data.topics || []);
@@ -153,28 +162,13 @@ export default function VideoAssistantPage() {
     fetchData(false);
   };
   
-  const handleQnA = async () => {
-    try {
-      const videoId = localStorage.getItem("video_id");
-      
-      if (!videoId) {
-        alert("Video ID not found. Please refresh the page.");
-        return;
-      }
-      
-      // Generate step 2 token for QNA flow
-      const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/generate_token?video_id=${videoId}&step=2`);
-      const { token } = response.data;
-      
-      // Store token for QNA page
-      localStorage.setItem("qna_token", token);
-      
-      // Redirect to QNA page
-      window.location.href = '/qna';
-    } catch (error) {
-      console.error("Error generating QNA token:", error);
-      alert("Failed to start QNA. Please try again.");
+  const handleQnA = () => {
+    // The step-2 token was stored when /analyze succeeded
+    if (!localStorage.getItem("video_id") || !localStorage.getItem("qna_token")) {
+      alert("Quiz session not found. Please refresh the page.");
+      return;
     }
+    window.location.href = '/qna';
   }
 
   return (
