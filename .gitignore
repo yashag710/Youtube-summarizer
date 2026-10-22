@@ -2,3 +2,4 @@ ISSUES.md
 .playwright-mcp/
 .DS_Store
 .vscode/
+*.pem

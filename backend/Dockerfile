@@ -23,6 +23,10 @@ COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 # Copy requirements first for better caching
 COPY requirements.txt .
 
+# CPU-only PyTorch first: the default Linux wheel bundles ~3 GB of CUDA libraries a CPU server
+# never uses. requirements.txt pins torch==2.14.1, which this +cpu build already satisfies.
+RUN pip install --no-cache-dir torch==2.14.1 --index-url https://download.pytorch.org/whl/cpu
+
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
