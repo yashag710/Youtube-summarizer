@@ -134,6 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(true);
   useEffect(() => {
     try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- storage is read after mount to avoid a hydration mismatch
       if (localStorage.getItem("vnotes:sidebar") === "closed") setOpen(false);
     } catch {}
   }, []);

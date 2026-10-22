@@ -57,13 +57,14 @@ function Notes() {
   const [copied, setCopied] = useState(false);
   const inFlight = useRef(false);
 
-  const generate = useCallback(async () => {
+  // refresh = ask for new notes; otherwise the server returns its cached ones if it has them
+  const generate = useCallback(async (refresh = false) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setLoading(true);
     setError(null);
     try {
-      const { data } = await api.post<{ sections: NoteSection[] }>("/notes", null, { params: { video_id: videoId } });
+      const { data } = await api.post<{ sections: NoteSection[] }>("/notes", null, { params: { video_id: videoId, refresh } });
       if (!data.sections?.length) throw new Error("The notes came back empty. Try generating them again.");
       setNotes(videoId, data.sections);
       setPage(0);
@@ -77,6 +78,7 @@ function Notes() {
 
   // Generate once per video; the result is cached in the session
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetching on first open is what this effect is for
     if (!notes) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -101,7 +103,7 @@ function Notes() {
       <Page title="Notes">
         <ErrorNotice
           message={error ?? "The notes couldn't be created."}
-          action={<button type="button" onClick={generate} className={`${buttonStyles.secondary} py-2`}><RotateCcw className="size-4" aria-hidden="true" /> Try again</button>}
+          action={<button type="button" onClick={() => generate(true)} className={`${buttonStyles.secondary} py-2`}><RotateCcw className="size-4" aria-hidden="true" /> Try again</button>}
         />
       </Page>
     );
@@ -172,7 +174,7 @@ function Notes() {
       title="Notes"
       description={`${total} ${total === 1 ? "page" : "pages"} of study notes from this video.`}
       actions={
-        <button type="button" onClick={generate} disabled={!!exporting} className={buttonStyles.ghost}>
+        <button type="button" onClick={() => generate(true)} disabled={!!exporting} className={buttonStyles.ghost}>
           <Sparkles className="size-4" aria-hidden="true" /> Rewrite notes
         </button>
       }

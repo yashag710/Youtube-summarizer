@@ -1,16 +1,18 @@
 import json, os
 
 from groq import Groq, APIError
-from cache_db import get_cached_video
+from cache_db import get_cached_video, get_generated, save_generated
 from services.flow_token import verify_flow_token
-from services.utils import normalize_mcq
+from services.utils import fit_transcript, normalize_mcq
 from dotenv import load_dotenv
 from fastapi import HTTPException
 
 load_dotenv()
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# More retries than the default 2: right after /analyze the per-minute token budget is often
+# spent, and the SDK waits out Groq's retry-after between attempts
+client = Groq(api_key=os.getenv("GROQ_API_KEY"), max_retries=4)
 
-def generate_video_qna(video_id: str, authorization: str | None):
+def generate_video_qna(video_id: str, authorization: str | None, refresh: bool = False):
     # 🔐 Step verification (must be step 2)
     payload = verify_flow_token(authorization, required_step=2)
 
@@ -22,8 +24,14 @@ def generate_video_qna(video_id: str, authorization: str | None):
     if not data:
         return {"error": "Video not processed yet"}
 
+    # Same quiz for everyone until someone asks for a new one, so revisits don't cost a Groq call
+    cached = None if refresh else get_generated(video_id, "quiz")
+    if cached:
+        return {"qna": {"questions": cached}}
+
     prompt = f"""
-Generate exactly 20 high-quality questions based on the video summary below.
+Generate exactly 20 high-quality questions based on the video transcript below.
+Only ask about what the video actually says; use the summary for orientation.
 
 DIFFICULTY DISTRIBUTION:
 - 10 Easy questions (basic recall and understanding)
@@ -80,6 +88,9 @@ Return ONLY valid JSON in this exact format:
 
 Summary:
 {data['summary']}
+
+Transcript:
+{fit_transcript(data['transcript'])}
 """
 
     # JSON mode makes Groq reject malformed output (e.g. bad escaping); it's intermittent,
@@ -93,7 +104,8 @@ Summary:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.4,
-                max_tokens=4000,
+                max_tokens=3000,  # ~2.2k used with low reasoning; leaves room in the 8k/min budget
+                reasoning_effort="low",  # its hidden reasoning otherwise uses nearly all of max_tokens
                 response_format={"type": "json_object"}
             )
             qna = json.loads(res.choices[0].message.content)
@@ -114,6 +126,8 @@ Summary:
                 continue  # unrepairable: drop it rather than show a wrong answer key
         questions.append(q)
 
+    if questions:
+        save_generated(video_id, "quiz", questions)
     return {
         "qna": {"questions": questions},
     }

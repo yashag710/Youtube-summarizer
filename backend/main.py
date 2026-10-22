@@ -3,15 +3,14 @@ import time
 from collections import defaultdict, deque
 from threading import Lock
 
-from fastapi import FastAPI, Query, Body, HTTPException, Header, Request, Depends
+from fastapi import FastAPI, Query, HTTPException, Header, Request, Depends
 from services.video_service import process_video_with_topics
-from services.transcription import VideoTooLong
+from services.transcription import VideoTooLong, UnsupportedLanguage
 from services.utils import extract_video_id
 from services.qna_service import generate_video_qna
 from chatbot.pipeline import chatbot_response
 from services.flow_token import create_flow_token
 from cache_db import init_db
-from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from services.flow_token import verify_flow_token
@@ -88,7 +87,7 @@ def analyze_video(
         result = process_video_with_topics(video_link)
         # The step-2 token is only handed out after a successful analysis, so Q&A can't skip it
         return {**result, "qna_token": create_flow_token(result["video_id"], step=2)}
-    except VideoTooLong as e:
+    except (VideoTooLong, UnsupportedLanguage) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         import traceback
@@ -105,9 +104,10 @@ def health():
 @app.post("/generate_qna", dependencies=[rate_limit("generate_qna", 10, 3600)])
 def generate_qna_route(
     video_id: str = Query(...),
+    refresh: bool = Query(False),  # true = generate a new quiz instead of the cached one
     authorization: str = Header(None)
 ):
-    return generate_video_qna(video_id, authorization)
+    return generate_video_qna(video_id, authorization, refresh)
 
 @app.get("/query", dependencies=[rate_limit("query", 30, 600)])
 def chatbot(query: str = Query(...), video_id: str = Query(...)):
@@ -124,7 +124,7 @@ def chatbot(query: str = Query(...), video_id: str = Query(...)):
     chunks, embeddings = load_video_index(video_id, cached["transcript"])
 
     # Get response
-    return {"response": chatbot_response(query, chunks, embeddings)}
+    return {"response": chatbot_response(query, chunks, embeddings, cached.get("summary", ""))}
 
 @app.post("/generate_token")
 def generate_token(video_id : str = Query(...)):
@@ -133,5 +133,5 @@ def generate_token(video_id : str = Query(...)):
     return {"token": token}
 
 @app.post("/notes", dependencies=[rate_limit("notes", 20, 3600)])
-def generate_notes(video_id : str = Query(...)):
-    return generate_video_notes(video_id)
+def generate_notes(video_id : str = Query(...), refresh: bool = Query(False)):
+    return generate_video_notes(video_id, refresh)

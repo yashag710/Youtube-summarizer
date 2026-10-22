@@ -313,12 +313,16 @@ When every attempt fails, the error lists each attempt's reason (for example `pr
 - `npm run start` - run production server
 - `npm run lint` - lint
 
+### Backend
+- `.venv/bin/python test_backend.py` - backend checks (from `backend/`; uses the Postgres in `.env`, fakes Groq and Whisper)
+- `.venv/bin/python -m services.utils` - yt-dlp and quiz-answer self-checks
+
 ---
 
 ## Future Improvements
 
 - Add migration tooling (Alembic) for DB schema evolution.
-- Add test suites for backend and frontend.
+- Add frontend tests.
 - Add queue/background worker for long-running analysis jobs.
 - Add authentication for multi-user support.
 

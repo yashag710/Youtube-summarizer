@@ -70,14 +70,15 @@ function Quiz() {
   const [{ answers, submitted }, setAttempt] = useAttempt(videoId);
   const inFlight = useRef(false);
 
-  const generate = useCallback(async () => {
+  // refresh = ask for a new quiz; otherwise the server returns its cached one if it has it
+  const generate = useCallback(async (refresh = false) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setLoading(true);
     setError(null);
     const request = (token: string) =>
       api.post<{ qna?: { questions: Question[] }; error?: string }>("/generate_qna", null, {
-        params: { video_id: videoId },
+        params: { video_id: videoId, refresh },
         headers: { Authorization: `Bearer ${token}` },
       });
     try {
@@ -103,6 +104,7 @@ function Quiz() {
 
   // Generate once per video; the result is cached in the session
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetching on first open is what this effect is for
     if (!quiz) generate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -113,7 +115,7 @@ function Quiz() {
       <Page title="Quiz">
         <ErrorNotice
           message={error ?? "The quiz couldn't be created."}
-          action={<button type="button" onClick={generate} className={`${buttonStyles.secondary} py-2`}><RotateCcw className="size-4" aria-hidden="true" /> Try again</button>}
+          action={<button type="button" onClick={() => generate(true)} className={`${buttonStyles.secondary} py-2`}><RotateCcw className="size-4" aria-hidden="true" /> Try again</button>}
         />
       </Page>
     );
@@ -138,7 +140,7 @@ function Quiz() {
       title="Quiz"
       description={`${quiz.length} questions. Multiple-choice and number answers are scored; compare written answers with the sample.`}
       actions={
-        <button type="button" onClick={generate} className={buttonStyles.ghost}>
+        <button type="button" onClick={() => generate(true)} className={buttonStyles.ghost}>
           <Sparkles className="size-4" aria-hidden="true" /> New quiz
         </button>
       }

@@ -2,7 +2,7 @@ import jwt, time
 import os
 import hashlib
 
-from fastapi import HTTPException, Header
+from fastapi import HTTPException
 from dotenv import load_dotenv
 
 load_dotenv()

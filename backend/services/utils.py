@@ -1,8 +1,23 @@
-import glob
 import os
 import re
 import subprocess
 import uuid
+
+
+# Groq's free tier allows 8k tokens per minute for gpt-oss-120b, counting the prompt plus
+# max_tokens. 9k chars of transcript measured at up to ~3.3k prompt tokens for the quiz
+# (translated text tokenizes denser), which with its 3k max_tokens leaves room to spare.
+LLM_TRANSCRIPT_CHARS = 9000
+
+
+def fit_transcript(transcript: str, max_chars: int = LLM_TRANSCRIPT_CHARS) -> str:
+    """The transcript if it fits, else evenly spaced excerpts so the whole video is covered."""
+    if len(transcript) <= max_chars:
+        return transcript
+    parts = 6
+    size = max_chars // parts
+    step = (len(transcript) - size) // (parts - 1)
+    return " [...] ".join(transcript[i * step:i * step + size] for i in range(parts))
 
 
 def extract_video_id(url: str) -> str:

@@ -1,18 +1,22 @@
 import json, re, os
 
 from groq import Groq
-from cache_db import get_cached_video
-from services.flow_token import verify_flow_token
+from cache_db import get_cached_video, get_generated, save_generated
 from dotenv import load_dotenv
 from fastapi import HTTPException
 
 load_dotenv()
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def generate_video_notes(video_id: str):
+def generate_video_notes(video_id: str, refresh: bool = False):
     data = get_cached_video(video_id)
     if not data:
         raise HTTPException(status_code=404, detail="Video not processed yet")
+
+    # Same notes for everyone until someone asks for a rewrite, so revisits don't cost a Groq call
+    cached = None if refresh else get_generated(video_id, "notes")
+    if cached:
+        return cached
 
     summary = data.get("summary")
     topics = data.get("topics", [])
@@ -62,12 +66,15 @@ Topics Covered:
         # Parse the notes into structured sections for pagination
         sections = parse_notes_into_sections(notes_text)
 
-        return {
+        result = {
             "video_id": video_id,
             "notes": notes_text,
             "sections": sections,
             "total_sections": len(sections)
         }
+        if sections:
+            save_generated(video_id, "notes", result)
+        return result
 
     except Exception as e:
         print(f"ERROR in generate_video_notes: {e}")

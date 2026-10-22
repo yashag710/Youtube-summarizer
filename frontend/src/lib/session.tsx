@@ -67,12 +67,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } catch {
       // unreadable storage: start fresh
     }
+    /* eslint-disable react-hooks/set-state-in-effect -- storage is read after mount to avoid a hydration mismatch */
     if (restored?.analysis) {
       setData(restored);
       setStatus("ready");
     } else {
       setStatus("empty");
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   useEffect(() => {

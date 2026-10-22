@@ -33,7 +33,9 @@ def rewrite_offline(text, mode="main"):
         chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
         
         final_summary = []
-        for chunk in chunks[:3]: # Limit to first few chunks to save time/memory if very long
+        # ponytail: callers pass 8-10 extractive sentences (2-3 chunks), so this cap rarely bites;
+        # it only bounds the heuristic_topics fallback that rewrites a whole transcript
+        for chunk in chunks[:3]:
             min_len, max_len = (60,130) if mode=="main" else (150,320)
             result = offline_summarizer(
                 chunk, max_length=max_len, min_length=min_len, do_sample=False
@@ -55,32 +57,6 @@ def rewrite_offline(text, mode="main"):
     except Exception as e:
         print(f"Error in rewriting: {e}")
         return text[:500]
-
-def generate_topics_offline(transcript):
-    # Heuristic: Split transcript into roughly 3 parts and summarize each as a topic
-    # This is a naive implementation as requested to use the offline model
-    length = len(transcript)
-    part_len = length // 3
-    topics = []
-    
-    for i in range(3):
-        start = i * part_len
-        end = (i + 1) * part_len if i < 2 else length
-        chunk = transcript[start:end]
-        if not chunk.strip(): continue
-        
-        # Summarize the chunk to get a "Topic Description"
-        summary = rewrite_offline(chunk, mode="main")
-        # Use first sentence as title roughly
-        title = summary.split('.')[0]
-        if len(title) > 50: title = title[:47] + "..."
-        
-        topics.append({
-            "topic": title,
-            "subtopics": [summary] # Using summary as subtopic detail
-        })
-        
-    return topics
 
 def split_into_points(text):
     """Split text into logical points/paragraphs instead of individual sentences"""

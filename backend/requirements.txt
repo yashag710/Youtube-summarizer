@@ -20,7 +20,6 @@ ffmpeg-python==0.2.0
 requests==2.34.2
 
 # Speech-to-text (offline)
-openai-whisper==20250625
 faster-whisper==1.2.1
 
 # NLP / Summarization
