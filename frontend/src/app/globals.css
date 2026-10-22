@@ -1,26 +1,82 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* `wide:` = desktop with the sidebar expanded (AppShell sets data-sidebar on its root). */
+@custom-variant wide {
+  @media (width >= 64rem) {
+    &:where([data-sidebar="open"], [data-sidebar="open"] *) {
+      @slot;
+    }
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Design tokens. Hex only (no oklch/color-mix) so html2canvas can render notes pages for PDF export. */
+@theme {
+  --color-paper: #f3f5f2;
+  --color-surface: #ffffff;
+  --color-ink: #17262b;
+  --color-ink-soft: #4a5b60;
+  --color-muted: #66767b;
+  --color-line: #d9e0dc;
+  --color-line-strong: #b9c4bf;
+  --color-pine: #1f5f4f;
+  --color-pine-dark: #174a3d;
+  --color-pine-tint: #e3efea;
+  --color-marker: #ffe14d;
+  --color-danger: #b3261e;
+  --color-danger-tint: #fbeae8;
+  --color-success: #1e7a43;
+  --color-success-tint: #e4f3ea;
+
+  --font-sans: var(--font-ui), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-reading), ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* In the base layer so utilities (e.g. outline-none on a field inside a bordered box) can override */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--color-marker);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-pine);
+    outline-offset: 2px;
+  }
+}
+
+/* Highlighter stroke under a label: the one decorative device, used for the active tab and logo */
+.marker {
+  background-image: linear-gradient(transparent 58%, var(--color-marker) 58%, var(--color-marker) 92%, transparent 92%);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  animation: marker-in 220ms ease-out;
+}
+
+@keyframes marker-in {
+  from {
+    background-size: 0% 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

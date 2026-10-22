@@ -1,432 +1,259 @@
 "use client";
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
-import NotesCanvas from './components/canvas';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Copy, Download, RotateCcw, Sparkles } from "lucide-react";
+import { LogoMark } from "@/components/logo";
+import { Markdown } from "@/components/markdown";
+import { RequireVideo } from "@/components/require-video";
+import { buttonStyles, ErrorNotice, LoadingBlock, Page, Spinner } from "@/components/ui";
+import { api, errorMessage, type NoteSection } from "@/lib/api";
+import { useSession } from "@/lib/session";
 
-// Modern color palette matching the site theme
-const ACCENT_PRIMARY = "#6366f1";
-const TEXT_PRIMARY = "#0f172a";
-const BG_SECONDARY = "#f8fafc";
-const FONT_FAMILY = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+type Format = "markdown" | "text" | "pdf";
+const FORMATS: { value: Format; label: string }[] = [
+  { value: "markdown", label: "Markdown" },
+  { value: "text", label: "Text" },
+  { value: "pdf", label: "PDF" },
+];
 
-// Icon helper component
-const Icon = ({ path, className = "w-5 h-5" }: { path: React.ReactNode, className?: string }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    {path}
-  </svg>
-);
+const toMarkdown = (sections: NoteSection[]) =>
+  `# Study notes\n\n${sections.map((s) => `## ${s.title}\n\n${s.content}`).join("\n\n")}\n`;
 
-// Icon paths
-const ICONS = {
-  arrowLeft: <><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></>,
-  fileText: <><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" /></>,
-  download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></>,
-  clipboard: <><rect x="8" y="2" width="8" height="4" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /></>,
-  checkCircle: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="m9 11 3 3L22 4" /></>,
-  loader: <><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="4.93" y1="4.93" x2="7.76" y2="7.76" /><line x1="16.24" y1="16.24" x2="19.07" y2="19.07" /><line x1="2" y1="12" x2="6" y2="12" /><line x1="18" y1="12" x2="22" y2="12" /><line x1="4.93" y1="19.07" x2="7.76" y2="16.24" /><line x1="16.24" y1="7.76" x2="19.07" y2="4.93" /></>,
-  sparkles: <><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" /><path d="M19 3l.75 2.25L22 6l-2.25.75L19 9l-.75-2.25L16 6l2.25-.75L19 3z" /></>,
-};
+const toText = (sections: NoteSection[]) =>
+  `STUDY NOTES\n\n${sections.map((s) => `${s.title.toUpperCase()}\n${"-".repeat(Math.min(s.title.length, 60))}\n${s.content.replace(/\*\*|`/g, "")}`).join("\n\n")}\n`;
 
-interface NoteSection {
-  title: string;
-  content: string;
+/** Wait until page `i` is rendered. Timers, not requestAnimationFrame: rAF never fires in a background tab. */
+async function waitForPage(i: number) {
+  for (let tries = 0; tries < 40; tries++) {
+    const el = document.getElementById(`page-${i}`);
+    if (el) return el;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  throw new Error(`Page ${i + 1} couldn't be rendered for the PDF.`);
+}
+
+function downloadFile(name: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function NotesPage() {
-  const [sections, setSections] = useState<NoteSection[]>([]);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>("");
+  return (
+    <RequireVideo feature="Notes">
+      <Notes />
+    </RequireVideo>
+  );
+}
+
+function Notes() {
+  const { analysis, notes, setNotes } = useSession();
+  const videoId = analysis!.video_id;
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [format, setFormat] = useState<Format>("pdf");
+  const [exporting, setExporting] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [selectedFormat, setSelectedFormat] = useState<'markdown' | 'plain' | 'pdf'>('markdown');
-  const [downloading, setDownloading] = useState(false);
+  const inFlight = useRef(false);
 
+  const generate = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await api.post<{ sections: NoteSection[] }>("/notes", null, { params: { video_id: videoId } });
+      if (!data.sections?.length) throw new Error("The notes came back empty. Try generating them again.");
+      setNotes(videoId, data.sections);
+      setPage(0);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
+  }, [videoId, setNotes]);
+
+  // Generate once per video; the result is cached in the session
   useEffect(() => {
-    const fetchNotes = async () => {
-      setLoading(true);
-      setError("");
-      
-      try {
-        const videoId = localStorage.getItem("video_id");
-
-        // Fetch notes from backend
-        const response = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/notes?video_id=${videoId}`);
-        
-        if (response.data) {
-          setSections(response.data.sections || []);
-        }
-      } catch (err) {
-        console.error("Error fetching notes:", err);
-        // Silently handle errors to show UI
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchNotes();
+    if (!notes) generate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const formatNotesAsMarkdown = () => {
-    let markdown = `# Study Notes\n\n`;
-    
-    sections.forEach((section) => {
-      markdown += `## ${section.title}\n\n`;
-      markdown += `${section.content}\n\n`;
-    });
-    
-    return markdown;
-  };
+  const total = notes?.length ?? 0;
+  const go = useCallback((to: number) => setPage(Math.max(0, Math.min(total - 1, to))), [total]);
 
-  const formatNotesAsPlainText = () => {
-    let text = `STUDY NOTES\n${'='.repeat(50)}\n\n`;
-    
-    sections.forEach((section) => {
-      text += `${section.title.toUpperCase()}\n${'-'.repeat(50)}\n`;
-      text += `${section.content}\n\n`;
-    });
-    
-    return text;
-  };
+  // Arrow keys turn pages, unless the user is typing somewhere
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "ArrowLeft") go(page - 1);
+      if (e.key === "ArrowRight") go(page + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [go, page]);
 
-  const handleCopy = async () => {
-    const content = selectedFormat === 'markdown' ? formatNotesAsMarkdown() : formatNotesAsPlainText();
-    
+  if (loading) return <LoadingBlock label="Writing your study notes…" />;
+  if (!notes) {
+    return (
+      <Page title="Notes">
+        <ErrorNotice
+          message={error ?? "The notes couldn't be created."}
+          action={<button type="button" onClick={generate} className={`${buttonStyles.secondary} py-2`}><RotateCcw className="size-4" aria-hidden="true" /> Try again</button>}
+        />
+      </Page>
+    );
+  }
+
+  const exportPdf = async () => {
+    const start = page;
+    setExporting("Preparing your PDF…");
     try {
-      await navigator.clipboard.writeText(content);
+      // Loaded on demand: they're large and only needed here
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
+      const pdf = new jsPDF("p", "mm", "a4");
+      const width = pdf.internal.pageSize.getWidth();
+      const height = pdf.internal.pageSize.getHeight();
+      await document.fonts.ready;
+      for (let i = 0; i < notes.length; i++) {
+        setExporting(`Preparing page ${i + 1} of ${notes.length}…`);
+        setPage(i);
+        const el = await waitForPage(i);
+        const canvas = await html2canvas(el, {
+          scale: 2,
+          backgroundColor: "#ffffff",
+          logging: false,
+          onclone: (doc) => {
+            const page = doc.getElementById(`page-${i}`);
+            if (page) Object.assign(page.style, { border: "none", borderRadius: "0", boxShadow: "none" });
+          },
+        });
+        const image = canvas.toDataURL("image/jpeg", 0.92);
+        const imageHeight = (canvas.height * width) / canvas.width;
+        // A long section continues onto further PDF pages instead of being cut off
+        for (let y = 0; y < imageHeight; y += height) {
+          if (i > 0 || y > 0) pdf.addPage();
+          pdf.addImage(image, "JPEG", 0, -y, width, imageHeight);
+        }
+      }
+      pdf.save(`vnotes-${videoId}.pdf`);
+    } catch (err) {
+      setError(`The PDF couldn't be created: ${errorMessage(err)}`);
+    } finally {
+      setPage(start);
+      setExporting(null);
+    }
+  };
+
+  const download = () => {
+    setError(null);
+    if (format === "pdf") return exportPdf();
+    if (format === "markdown") downloadFile(`vnotes-${videoId}.md`, toMarkdown(notes), "text/markdown");
+    else downloadFile(`vnotes-${videoId}.txt`, toText(notes), "text/plain");
+  };
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(format === "text" ? toText(notes) : toMarkdown(notes));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+    } catch {
+      setError("Copying isn't allowed in this browser. Use Download instead.");
     }
   };
 
-  const handleDownload = async () => {
-    if (selectedFormat === 'pdf') {
-      await handlePDFDownload();
-    } else {
-      const content = selectedFormat === 'markdown' ? formatNotesAsMarkdown() : formatNotesAsPlainText();
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `video-notes.${selectedFormat === 'markdown' ? 'md' : 'txt'}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  const handlePDFDownload = async () => {
-    setDownloading(true);
-    
-    if (!sections || sections.length === 0) {
-      alert('No notes available to export as PDF.');
-      setDownloading(false);
-      return;
-    }
-    
-    try {
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      for (let i = 0; i < sections.length; i++) {
-        // 1. Change the page in the UI
-        setCurrentPage(i);
-        
-        // 2. WAIT: Give React time to render the new content into the DOM
-        await new Promise(resolve => setTimeout(resolve, 800));
-        
-        // 3. Capture the element
-        const element = document.getElementById(`page-${i}`);
-        
-        if (!element) {
-          console.error(`Element page-${i} not found in DOM`);
-          throw new Error(`Failed to find page ${i + 1} in the document`);
-        }
-        
-        console.log(`Capturing page ${i + 1}/${sections.length}...`);
-        
-        const canvas = await html2canvas(element, {
-          scale: 2,
-          useCORS: true,
-          logging: true,
-          backgroundColor: '#ffffff',
-          allowTaint: true,
-          removeContainer: false,
-        });
-        
-        const imgData = canvas.toDataURL('image/png');
-        
-        // Calculate width/height to fit PDF
-        const imgWidth = pdfWidth;
-        const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-        
-        if (i > 0) pdf.addPage();
-        
-        // Add image to PDF
-        pdf.addImage(
-          imgData, 
-          'PNG', 
-          0, 
-          0, 
-          imgWidth, 
-          imgHeight > pdfHeight ? pdfHeight : imgHeight
-        );
-      }
-      
-      pdf.save('YouTube_Study_Notes.pdf');
-      console.log('PDF generated successfully');
-    } catch (error) {
-      console.error('PDF Generation Error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      alert(`Failed to generate PDF: ${errorMessage}\n\nPlease check the console for more details.`);
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <>
-        <style>{`
-          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-          * { font-family: ${FONT_FAMILY}; }
-          body { background: ${BG_SECONDARY}; color: ${TEXT_PRIMARY}; margin: 0; }
-        `}</style>
-        <main className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
-          <div className="text-center px-4">
-            <Icon path={ICONS.loader} className="w-16 h-16 text-[#6366f1] mx-auto mb-6 animate-spin" />
-            <h2 className="text-3xl font-bold tracking-tight text-[#0f172a] mb-2">Loading Notes</h2>
-            <p className="text-[#64748b] text-lg">Preparing your study materials...</p>
-          </div>
-        </main>
-      </>
-    );
-  }
-
-  if (error) {
-    return (
-      <>
-        <style>{`
-          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-          * { font-family: ${FONT_FAMILY}; }
-          body { background: ${BG_SECONDARY}; color: ${TEXT_PRIMARY}; margin: 0; }
-        `}</style>
-        <main className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4">
-          <div className="bg-white border border-[#e2e8f0] rounded-2xl p-8 sm:p-12 text-center max-w-md shadow-lg">
-            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <span className="text-3xl">⚠️</span>
-            </div>
-            <h1 className="text-2xl font-bold mb-3 text-[#0f172a]">Unable to Load Notes</h1>
-            <p className="text-[#64748b] mb-6 leading-relaxed">{error}</p>
-            <button 
-              onClick={() => window.location.href = '/content'} 
-              className="px-6 py-3 bg-[#6366f1] text-white text-sm font-semibold rounded-lg hover:bg-[#4f46e5] transition-colors shadow-md"
-            >
-              Back to Content
-            </button>
-          </div>
-        </main>
-      </>
-    );
-  }
+  const section = notes[Math.min(page, total - 1)];
 
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        * { font-family: ${FONT_FAMILY}; }
-        body { background: ${BG_SECONDARY}; color: ${TEXT_PRIMARY}; margin: 0; }
-        
-        .format-btn {
-          transition: all 0.2s ease;
-          cursor: pointer;
-        }
-        
-        .format-btn.active {
-          background: ${ACCENT_PRIMARY};
-          color: white;
-        }
-        
-        .scrollbar-thin::-webkit-scrollbar { width: 6px; }
-        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-        .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
-        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-      `}</style>
-      
-      <main className="min-h-screen bg-[#f8fafc]">
-        {/* Header */}
-        <header className="bg-white border-b border-[#e2e8f0] px-6 py-5 shadow-sm">
-          <div className="flex items-center justify-between max-w-7xl mx-auto">
-            <div className="flex items-center gap-4">
-              <button 
-                onClick={() => window.history.back()} 
-                className="flex items-center gap-2 px-3 py-2 text-[#475569] hover:text-[#0f172a] hover:bg-[#f8fafc] transition-all"
-              >
-                <Icon path={ICONS.arrowLeft} className="w-5 h-5" />
-                <span className="text-sm font-medium">Back</span>
+    <Page
+      wide
+      title="Notes"
+      description={`${total} ${total === 1 ? "page" : "pages"} of study notes from this video.`}
+      actions={
+        <button type="button" onClick={generate} disabled={!!exporting} className={buttonStyles.ghost}>
+          <Sparkles className="size-4" aria-hidden="true" /> Rewrite notes
+        </button>
+      }
+    >
+      {error && <div className="mb-6"><ErrorNotice message={error} /></div>}
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-8">
+        <aside className="lg:order-last">
+          <div className="flex flex-col gap-5 rounded-2xl border border-line bg-surface p-4 lg:sticky lg:top-6">
+            <div>
+              <p id="format-label" className="mb-2 text-sm font-semibold">Export as</p>
+              <div role="radiogroup" aria-labelledby="format-label" className="flex gap-1 rounded-lg bg-paper p-1">
+                {FORMATS.map((f) => (
+                  <button
+                    key={f.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={format === f.value}
+                    onClick={() => setFormat(f.value)}
+                    className={`flex-auto whitespace-nowrap rounded-md px-2 py-1.5 text-sm ${format === f.value ? "bg-surface font-semibold text-ink shadow-[0_1px_2px_#b9c4bf]" : "text-ink-soft hover:text-ink"}`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+              <button type="button" onClick={download} disabled={!!exporting} className={buttonStyles.primary}>
+                {exporting ? <Spinner className="size-4" /> : <Download className="size-4" aria-hidden="true" />}
+                {exporting ? "Exporting…" : "Download"}
               </button>
-              <div className="h-6 w-px bg-[#e2e8f0]"></div>
-              <div>
-                <h1 className="text-2xl font-bold text-[#0f172a] tracking-tight">Study Notes</h1>
-                <p className="text-sm text-[#64748b] mt-0.5">AI-generated comprehensive notes</p>
-              </div>
+              <button type="button" onClick={copy} disabled={format === "pdf" || !!exporting} className={buttonStyles.secondary} title={format === "pdf" ? "Choose Markdown or Plain text to copy" : undefined}>
+                {copied ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
             </div>
-            <div className="flex items-center gap-2">
-              <Icon path={ICONS.fileText} className="w-6 h-6 text-[#6366f1]" />
-            </div>
+            {exporting && <p className="text-xs text-ink-soft" role="status">{exporting}</p>}
+
+            <nav aria-label="Note sections" className="hidden lg:block">
+              <p className="mb-2 text-sm font-semibold">Sections</p>
+              <ol className="space-y-0.5">
+                {notes.map((s, i) => (
+                  <li key={i}>
+                    <button
+                      type="button"
+                      onClick={() => go(i)}
+                      aria-current={i === page ? "page" : undefined}
+                      className={`w-full rounded-md px-2 py-1.5 text-left text-sm leading-snug ${i === page ? "bg-pine-tint font-semibold text-pine-dark" : "text-ink-soft hover:bg-paper"}`}
+                    >
+                      {s.title || `Page ${i + 1}`}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
           </div>
-        </header>
+        </aside>
 
-        {/* Main Content - Two Column Layout */}
-        <div className="flex">
-          {/* Left - Preview Canvas */}
-          <div className="flex-1 px-4 sm:px-6 lg:px-8 py-8">
-            <div className="max-w-4xl mx-auto">
-              <NotesCanvas 
-                sections={sections}
-                currentPage={currentPage}
-                onPageChange={setCurrentPage}
-              />
+        <div className="min-w-0">
+          <article id={`page-${page}`} className="min-h-[60vh] rounded-2xl border border-line bg-surface px-5 py-7 shadow-[0_1px_2px_#d9e0dc] sm:px-10 sm:py-10 lg:px-14 lg:py-12">
+            <div className="mb-8 flex items-center justify-between border-b border-line pb-3 text-xs text-muted">
+              <span className="flex items-center gap-2">
+                <LogoMark className="size-4" /> VNotes study notes
+              </span>
+              <span>Page {page + 1} of {total}</span>
             </div>
-          </div>
+            {section.title && <h2 className="text-2xl font-bold tracking-[-0.02em] text-ink">{section.title}</h2>}
+            <Markdown text={section.content} className="mt-5 font-serif text-[1.02rem] text-ink" />
+          </article>
 
-          {/* Right Side - Actions Panel (Fixed to Right Edge) */}
-          <div className="hidden lg:block w-[380px] xl:w-[420px] flex-shrink-0 bg-white border-l border-[#e2e8f0] shadow-lg">
-            <div className="p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Icon path={ICONS.sparkles} className="w-5 h-5 text-[#6366f1]" />
-                  <h3 className="text-lg font-bold text-[#0f172a]">Export Options</h3>
-                </div>
-                
-                <p className="text-sm text-[#64748b] mb-6 leading-relaxed">
-                  Choose your preferred format and download or copy your notes for studying.
-                </p>
-
-                <div className="h-px bg-[#e2e8f0] my-6"></div>
-
-                {/* Format Selection */}
-                <div className="mb-6">
-                  <label className="text-sm font-semibold text-[#0f172a] mb-3 block">
-                    Select Format
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      onClick={() => setSelectedFormat('markdown')}
-                      className={`format-btn px-3 py-3 border-2 font-semibold text-xs ${
-                        selectedFormat === 'markdown'
-                          ? 'active border-[#6366f1]'
-                          : 'border-[#e2e8f0] bg-white text-[#475569] hover:border-[#6366f1]/50'
-                      }`}
-                    >
-                      Markdown
-                    </button>
-                    <button
-                      onClick={() => setSelectedFormat('plain')}
-                      className={`format-btn px-3 py-3 border-2 font-semibold text-xs ${
-                        selectedFormat === 'plain'
-                          ? 'active border-[#6366f1]'
-                          : 'border-[#e2e8f0] bg-white text-[#475569] hover:border-[#6366f1]/50'
-                      }`}
-                    >
-                      Plain Text
-                    </button>
-                    <button
-                      onClick={() => setSelectedFormat('pdf')}
-                      className={`format-btn px-3 py-3 border-2 font-semibold text-xs ${
-                        selectedFormat === 'pdf'
-                          ? 'active border-[#6366f1]'
-                          : 'border-[#e2e8f0] bg-white text-[#475569] hover:border-[#6366f1]/50'
-                      }`}
-                    >
-                      PDF
-                    </button>
-                  </div>
-                </div>
-
-                <div className="h-px bg-[#e2e8f0] my-6"></div>
-
-                {/* Instructions */}
-                <div className="bg-[#f0f4ff] border border-[#d1dbf5] p-4 mb-6">
-                  <ul className="space-y-3 text-sm text-[#64748b]">
-                    <li className="flex items-start gap-2">
-                      <Icon path={ICONS.checkCircle} className="w-4 h-4 text-[#6366f1] mt-0.5 flex-shrink-0" />
-                      <span>Download notes for offline studying</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Icon path={ICONS.checkCircle} className="w-4 h-4 text-[#6366f1] mt-0.5 flex-shrink-0" />
-                      <span>Copy to clipboard for quick sharing</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <Icon path={ICONS.checkCircle} className="w-4 h-4 text-[#6366f1] mt-0.5 flex-shrink-0" />
-                      <span>Format compatible with most apps</span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="h-px bg-[#e2e8f0] my-6"></div>
-
-                {/* Action Buttons */}
-                <div className="space-y-3">
-                  <button
-                    onClick={handleDownload}
-                    disabled={downloading}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-[#6366f1] text-white font-bold hover:bg-[#4f46e5] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {downloading ? (
-                      <>
-                        <Icon path={ICONS.loader} className="w-5 h-5 animate-spin" />
-                        Generating PDF...
-                      </>
-                    ) : (
-                      <>
-                        <Icon path={ICONS.download} className="w-5 h-5" />
-                        Download Notes
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={handleCopy}
-                    className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-white border-2 border-[#e2e8f0] text-[#0f172a] font-semibold hover:border-[#6366f1] hover:bg-[#fafbfc] transition-all"
-                  >
-                    <Icon path={copied ? ICONS.checkCircle : ICONS.clipboard} className="w-5 h-5" />
-                    {copied ? 'Copied!' : 'Copy to Clipboard'}
-                  </button>
-                </div>
-
-                <div className="h-px bg-[#e2e8f0] my-6"></div>
-
-                {/* Stats */}
-                <div className="grid grid-cols-2 gap-4 text-center">
-                  <div className="py-4 border border-[#e2e8f0] bg-white">
-                    <div className="text-2xl font-bold text-[#6366f1]">{sections.length}</div>
-                    <div className="text-xs text-[#64748b] mt-1">Pages</div>
-                  </div>
-                  <div className="py-4 border border-[#e2e8f0] bg-white">
-                    <div className="text-2xl font-bold text-[#6366f1]">
-                      {sections.reduce((acc, s) => acc + s.content.split('\n').filter(l => l.trim()).length, 0)}
-                    </div>
-                    <div className="text-xs text-[#64748b] mt-1">Paragraphs</div>
-                  </div>
-                </div>
-              </div>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <button type="button" onClick={() => go(page - 1)} disabled={page === 0 || !!exporting} className={buttonStyles.secondary}>
+              <ChevronLeft className="size-4" aria-hidden="true" /> Previous
+            </button>
+            <span className="text-sm tabular-nums text-ink-soft">{page + 1} / {total}</span>
+            <button type="button" onClick={() => go(page + 1)} disabled={page >= total - 1 || !!exporting} className={buttonStyles.secondary}>
+              Next <ChevronRight className="size-4" aria-hidden="true" />
+            </button>
           </div>
         </div>
-      </main>
-    </>
+      </div>
+    </Page>
   );
 }

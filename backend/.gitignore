@@ -25,3 +25,5 @@ htmlcov/
 
 # Logs
 *.log
+# Leftover SQLite cache (the app uses Postgres)
+*.db

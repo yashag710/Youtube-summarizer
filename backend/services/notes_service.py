@@ -70,7 +70,8 @@ Topics Covered:
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate notes: {str(e)}")
+        print(f"ERROR in generate_video_notes: {e}")
+        raise HTTPException(status_code=502, detail="The notes couldn't be generated. Try again in a moment.")
 
 def parse_notes_into_sections(notes_text: str):
     """Parse markdown notes into pageable sections"""

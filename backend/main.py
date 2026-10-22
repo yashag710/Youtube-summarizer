@@ -1,3 +1,4 @@
+import os
 import time
 from collections import defaultdict, deque
 from threading import Lock
@@ -19,11 +20,16 @@ from services.notes_service import generate_video_notes
 # Initialize database schema (runs migrations)
 init_db()
 
-app = FastAPI()
+# API docs are off unless ENABLE_DOCS=1, so a public deploy doesn't advertise every route
+docs = os.getenv("ENABLE_DOCS") == "1"
+app = FastAPI(docs_url="/docs" if docs else None, redoc_url=None, openapi_url="/openapi.json" if docs else None)
+
+# Comma-separated frontend origins, e.g. ALLOWED_ORIGINS=https://vnotes.app,https://www.vnotes.app
+ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # frontend origin
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],   # IMPORTANT
     allow_headers=["*"],   # IMPORTANT
@@ -35,7 +41,8 @@ _hits_lock = Lock()
 def rate_limit(name: str, limit: int, window_seconds: int):
     """Per-IP sliding-window limit, used as a route dependency.
     ponytail: in-memory and per process; move to Redis if running more than one worker.
-    Behind a reverse proxy request.client.host is the proxy, so read X-Forwarded-For there."""
+    Behind a reverse proxy, uvicorn rewrites request.client.host from X-Forwarded-For, but only
+    for proxies listed in FORWARDED_ALLOW_IPS (set in docker-compose.yml)."""
     def check(request: Request):
         key = (name, request.client.host if request.client else "unknown")
         now = time.monotonic()
@@ -88,7 +95,12 @@ def analyze_video(
         error_trace = traceback.format_exc()
         print(f"ERROR in /analyze: {str(e)}")
         print(f"TRACEBACK: {error_trace}")
-        raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
+        # The traceback above goes to the server log; the client only gets a generic message
+        raise HTTPException(status_code=500, detail="This video couldn't be processed. Try again in a moment.")
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 @app.post("/generate_qna", dependencies=[rate_limit("generate_qna", 10, 3600)])
 def generate_qna_route(

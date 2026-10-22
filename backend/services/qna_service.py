@@ -82,21 +82,27 @@ Summary:
 {data['summary']}
 """
 
-    try:
-        res = client.chat.completions.create(
-            model="openai/gpt-oss-120b",  # Groq retired the Llama 3.x models
-            messages=[
-                {"role": "system", "content": "You are an expert educator who creates high-quality assessment questions. Generate exactly 20 questions with varied types and difficulties. Return ONLY valid JSON, no markdown formatting."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.4,
-            max_tokens=4000,
-            response_format={"type": "json_object"}
-        )
-        qna = json.loads(res.choices[0].message.content)
-    except (APIError, json.JSONDecodeError) as e:
-        # JSON mode makes Groq itself reject non-JSON output, so failures surface here
-        raise HTTPException(status_code=502, detail=f"Quiz generation failed: {e}")
+    # JSON mode makes Groq reject malformed output (e.g. bad escaping); it's intermittent,
+    # so one retry usually succeeds
+    for attempt in range(2):
+        try:
+            res = client.chat.completions.create(
+                model="openai/gpt-oss-120b",  # Groq retired the Llama 3.x models
+                messages=[
+                    {"role": "system", "content": "You are an expert educator who creates high-quality assessment questions. Generate exactly 20 questions with varied types and difficulties. Return ONLY valid JSON, no markdown formatting."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                max_tokens=4000,
+                response_format={"type": "json_object"}
+            )
+            qna = json.loads(res.choices[0].message.content)
+            break
+        except (APIError, json.JSONDecodeError) as e:
+            # Full error (it can include the whole failed generation) stays in the server log
+            print(f"Quiz generation attempt {attempt + 1} failed: {e}")
+    else:
+        raise HTTPException(status_code=502, detail="The quiz couldn't be generated. Try again in a moment.")
 
     questions = []
     for q in qna.get("questions", []):

@@ -37,6 +37,6 @@ EXPOSE 8000
 
 # Health check (Ensure curl is installed in the RUN block above)
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=5 \
-CMD curl -f http://localhost:8000/docs || exit 1
+CMD curl -f http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

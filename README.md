@@ -1,4 +1,4 @@
-# YouTube Summarizer (Vbloc)
+# VNotes
 
 AI-powered learning app that converts YouTube videos into:
 - structured topic-wise summaries,
@@ -40,9 +40,10 @@ It uses a FastAPI backend for video processing + AI generation, a Next.js fronte
 ### Frontend
 - Next.js (App Router)
 - React
-- Tailwind CSS
+- Tailwind CSS v4 (design tokens in `src/app/globals.css`)
 - Axios
-- html2canvas + jsPDF (notes export)
+- lucide-react icons
+- html2canvas + jsPDF (notes PDF export, loaded on demand)
 
 ### Infra
 - Docker + Docker Compose
@@ -61,25 +62,32 @@ It uses a FastAPI backend for video processing + AI generation, a Next.js fronte
 │   └── chatbot/
 └── frontend/
 		├── package.json
-		└── src/app/
-				├── page.tsx
-				├── content/
-				├── qna/
-				└── notes/
+		└── src/
+				├── app/
+				│   ├── layout.tsx      # fonts, app shell, session provider
+				│   ├── page.tsx        # Summary: link input and results
+				│   ├── chat/           # Ask
+				│   ├── qna/            # Quiz
+				│   ├── notes/          # Notes and export
+				│   └── content/        # redirects to / (old URL)
+				├── components/         # app shell (sidebar / bottom tabs), UI, Markdown
+				└── lib/                # API client, per-tab video session
 ```
+
+The frontend is one workspace with four sections: Summary, Ask, Quiz and Notes. Ask, Quiz and Notes stay locked until a video is summarized. The summary, quiz, notes and chat are kept in a per-tab session (`sessionStorage`), so switching sections or reloading doesn't call the backend again.
 
 ---
 
 ## How It Works (Flow)
 
-1. User submits a YouTube URL on the landing page.
+1. User pastes a YouTube URL on the Summary page.
 2. Frontend requests `POST /generate_token?video_id=<id>` (always a step-1 token).
 3. Frontend calls `POST /analyze` with Bearer token. The token's video must match the link.
 4. Backend downloads audio, transcribes, summarizes, and caches result. Videos longer than 30 minutes are rejected.
-5. `/analyze` returns a step-2 `qna_token` alongside the results. User can:
-	 - open chatbot (`GET /query`),
-	 - generate notes (`POST /notes`),
-	 - or generate quiz by calling `POST /generate_qna` with the `qna_token`.
+5. `/analyze` returns a step-2 `qna_token` alongside the results, and the Ask, Quiz and Notes sections unlock:
+	 - Ask (`GET /query`),
+	 - Notes (`POST /notes`),
+	 - Quiz (`POST /generate_qna` with the `qna_token`; refreshed automatically when it expires).
 
 ---
 
@@ -112,12 +120,17 @@ GROQ_API_KEY=your_groq_api_key
 # JWT/token flow
 SECRET=your_long_random_secret
 
-# PostgreSQL
-DB_HOST=postgres
+# PostgreSQL (Docker Compose also creates the database from these, and overrides DB_HOST to "postgres")
+DB_HOST=localhost
 DB_PORT=5432
 DB_NAME=youtube_summarizer
 DB_USER=postgres
-DB_PASSWORD=postgres
+DB_PASSWORD=a_strong_password  # required by Docker Compose
+
+# Deployment
+ALLOWED_ORIGINS=http://localhost:3000  # comma-separated frontend URLs, e.g. https://vnotes.app
+# ENABLE_DOCS=1                        # serve /docs (off by default)
+# FORWARDED_ALLOW_IPS=*                # outside Compose: set when the backend is only reachable through your host's proxy
 
 # yt-dlp (optional)
 # Rotating residential proxy, tried before the direct connection. {session} is replaced
@@ -141,13 +154,20 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 From repo root:
 
 ```bash
-docker compose up --build
+docker compose --env-file backend/.env up --build
 ```
+
+`--env-file` lets Compose read the database credentials from `backend/.env`.
 
 Services:
 - Frontend: start separately (see below) on `http://localhost:3000`
-- Backend API: `http://localhost:8000`
-- Postgres: `localhost:5432`
+- Backend API: `http://localhost:8000` (bound to localhost only; health check at `/health`)
+- Postgres: internal to the Docker network, not published on the host
+
+Deploying:
+- Put a TLS reverse proxy (nginx, Caddy) in front of port 8000, with a request timeout of at least 15 minutes for `/analyze`.
+- Set `ALLOWED_ORIGINS` to your frontend URL, and build the frontend with `NEXT_PUBLIC_API_URL` set to the public backend URL.
+- Postgres only reads the credentials when its volume is first created. If you've run Compose before with other credentials, run `docker compose down -v` once (this deletes the cached videos).
 
 Backend container details:
 - Runs Uvicorn, with Node 22 for yt-dlp.
